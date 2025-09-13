@@ -3,6 +3,7 @@ import os
 from functions.get_files_info import get_files_info
 from functions.get_file_content import get_file_content
 from functions.write_file import write_file
+from functions.run_python_file import run_python_file
 from config import MAX_CHARS
 
 class TestFunctions(unittest.TestCase):
@@ -117,6 +118,32 @@ class TestFunctions(unittest.TestCase):
         result = write_file(self.working_directory, file_path, content)
         expected = f'Error: Cannot write to "{file_path}" as it is outside the permitted working directory'
         self.assertEqual(result, expected)
+
+    def test_run_python_file_main_usage(self):
+        result = run_python_file(self.working_directory, "main.py")
+        self.assertIn("STDOUT:", result)
+        self.assertIn('Usage: python main.py "<expression>"', result)
+        
+    def test_run_python_file_with_args(self):
+        result = run_python_file(self.working_directory, "main.py", ["3 + 5"])
+        self.assertIn("STDOUT:", result)
+        self.assertIn('"result": 8', result)
+        
+    def test_run_python_file_tests(self):
+        result = run_python_file(self.working_directory, "tests.py")
+        self.assertIn("STDERR:", result)
+        self.assertIn("Ran", result)
+        self.assertIn("OK", result)
+
+    def test_run_python_file_outside_boundary(self):
+        result = run_python_file(self.working_directory, "../main.py")
+        expected_error = 'Error: Cannot execute "../main.py" as it is outside the permitted working directory'
+        self.assertEqual(result, expected_error)
+        
+    def test_run_python_file_nonexistent_file(self):
+        result = run_python_file(self.working_directory, "nonexistent.py")
+        expected_error = 'Error: File "nonexistent.py" not found.'
+        self.assertEqual(result, expected_error)
 
 if __name__ == "__main__":
     unittest.main()
