@@ -9,6 +9,9 @@ from functions.run_python_file import run_python_file, schema_run_python_file
 from functions.write_file import write_file, schema_write_file
 
 def call_function(function_call_part, verbose=False):
+    """
+    Calls a function based on the model's function call part.
+    """
     function_name = function_call_part.name
     function_args = function_call_part.args
 
@@ -35,6 +38,7 @@ def call_function(function_call_part, verbose=False):
             ],
         )
 
+    # Inject the working directory for security
     function_args["working_directory"] = "./calculator"
 
     try:
@@ -61,6 +65,9 @@ def call_function(function_call_part, verbose=False):
         )
 
 def main():
+    """
+    Main function to run the command-line tool.
+    """
     load_dotenv()
 
     parser = argparse.ArgumentParser(
@@ -108,37 +115,54 @@ def main():
         ]
     )
 
+    # Initialize the messages list with the user's prompt
     messages = [
         types.Content(role="user", parts=[types.Part(text=user_prompt)]),
     ]
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash-001",
-        contents=messages,
-        config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt)
-    )
-
-    if (args.verbose):
-        print(f"User prompt: {user_prompt}")
-        print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
-        print(f"Response tokens: {response.usage_metadata.candidates_token_count }")
-    
     print("Response:")
-    function_call_part = response.candidates[0].content.parts[0]
 
-    if function_call_part.function_call:
-        function_call_result = call_function(function_call_part.function_call, verbose=args.verbose)
-        if not (function_call_result and
-                function_call_result.parts and
-                function_call_result.parts[0].function_response and
-                function_call_result.parts[0].function_response.response):
-            raise Exception("Unexpected function response structure.")
+    # Loop for a maximum of 20 iterations to allow for a feedback loop
+    for _ in range(20):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.0-flash-001",
+                contents=messages,
+                config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt)
+            )
 
-        if args.verbose:
-            print(f"-> {function_call_result.parts[0].function_response.response}")
+            if (args.verbose):
+                print(f"User prompt: {user_prompt}")
+                print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
+                print(f"Response tokens: {response.usage_metadata.candidates_token_count }")
 
+            # Check if the model is done and has a final text response
+            if response.text:
+                print(response.text)
+                break # Exit the loop, the agent is done
+
+            # Extract the candidate response and add to messages
+            candidate = response.candidates[0].content
+            messages.append(candidate)
+
+            # Check for a function call in the candidate response
+            if not candidate.parts or not candidate.parts[0].function_call:
+                print("Model returned a text response, but it was not the final one. Something is wrong.")
+                break
+
+            function_call_part = candidate.parts[0].function_call
+            function_call_result = call_function(function_call_part, verbose=args.verbose)
+            
+            # Append the tool's response to the messages list
+            if function_call_result:
+                messages.append(function_call_result)
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            break
+            
     else:
-        print(response.text)
+        print("Maximum iterations reached. The agent might be stuck or the task is complex.")
 
 if __name__ == "__main__":
     main()
